@@ -19,7 +19,7 @@ The SymbolicReasoningEngine is a flexible and extensible framework that enables 
 To get started with the SymbolicReasoningEngine, clone this repository and include it in your project. Ensure you have Rust installed on your system to compile and run the engine.
 
 ```bash
-git clone https://github.com/yourusername/SymbolicReasoningEngine.git
+git clone https://github.com/TheTekton337/SymbolicReasoningEngine.git
 cd SymbolicReasoningEngine
 cargo build
 ```
