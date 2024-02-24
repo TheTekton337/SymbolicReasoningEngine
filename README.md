@@ -84,7 +84,4 @@ We welcome contributions to the SymbolicReasoningEngine project! Please refer to
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-```
-
-This `README.md` provides an overview of the SymbolicReasoningEngine project, highlighting its key features, how to get started, usage examples, and how to contribute to the project. Adjust the repository URL, paths to documentation, contributing guide, and license as necessary to match your project's specifics.
+This project is licensed under the Unlicense - see the [LICENSE](LICENSE) file for details.
