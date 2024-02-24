@@ -76,7 +76,7 @@ engine.forward_chaining_with_variables();
 
 ## Documentation
 
-For detailed documentation on using the SymbolicReasoningEngine, including all available methods and their usage, please refer to the [docs](docs/) directory in this repository.
+For detailed documentation on using the SymbolicReasoningEngine, including all available methods and their usage, please refer to the [doc](doc/) directory in this repository.
 
 ## Contributing
 
