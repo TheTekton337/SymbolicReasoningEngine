@@ -5,7 +5,7 @@ use std::collections::HashMap;
 /// A symbol is a basic unit of meaning, identified by a name and associated with a type.
 /// Symbols are used to construct facts and define the relationship between facts and rules within the engine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct Symbol {
+pub struct Symbol {
     name: String,
     symbol_type: String,
 }
@@ -15,7 +15,7 @@ struct Symbol {
 /// A fact associates a symbol with a specific value, contributing to the knowledge base of the engine.
 /// Facts are used in conjunction with rules to infer new information or make decisions based on the engine's current state.
 #[derive(Debug, Clone, PartialEq)]
-struct Fact {
+pub struct Fact {
     symbol: Symbol,
     value: FactValue, // Simplified to boolean for this example
 }
@@ -25,7 +25,7 @@ struct Fact {
 /// This enumeration covers basic data types such as integers, floats, booleans, and text strings,
 /// allowing for a wide range of information to be represented and manipulated within the engine.
 #[derive(Debug, Clone, PartialEq)]
-enum FactValue {
+pub enum FactValue {
     Integer(i32),
     Float(f64),
     Boolean(bool),
@@ -52,7 +52,7 @@ enum FactValue {
 /// underpinning the mechanism through which rules and facts interact to derive new insights or conclusions based on the
 /// data modeled within the engine.
 #[derive(Debug, Clone, PartialEq)]
-enum Comparison {
+pub enum Comparison {
     GreaterThan,
     LessThan,
     EqualTo,
@@ -83,7 +83,7 @@ enum Comparison {
 /// These operators are essential for expressing dependencies and relationships between facts, underpinning the
 /// engine's ability to reason about and interpret the data it manages.
 #[derive(Debug, Clone)]
-enum LogicalOperator {
+pub enum LogicalOperator {
     And(Vec<LogicalOperator>),
     Or(Vec<LogicalOperator>),
     Not(Box<LogicalOperator>),
@@ -114,7 +114,8 @@ enum LogicalOperator {
 /// through logical inference based on defined conditions and relationships. They enable the engine to model and
 /// reason about complex scenarios, facilitating sophisticated decision-making processes.
 #[derive(Debug, Clone)]
-struct Rule {
+#[allow(dead_code)]
+pub struct Rule {
     premise: LogicalOperator,
     conclusion: Fact,
 }
@@ -158,7 +159,8 @@ struct Rule {
 ///
 /// The `SymbolicReasoningEngine` is designed to be extensible, allowing for the integration of additional functionality
 /// and optimizations to suit specific requirements or to enhance its reasoning capabilities.
-struct SymbolicReasoningEngine {
+#[allow(dead_code)]
+pub struct SymbolicReasoningEngine {
     symbols: HashMap<String, Symbol>,
     facts: Vec<Fact>,
     rules: Vec<Rule>,
@@ -187,6 +189,7 @@ struct SymbolicReasoningEngine {
 ///
 /// The `SymbolicReasoningEngine` aims to provide a comprehensive framework for symbolic reasoning, supporting a wide
 /// range of applications from automated decision-making systems to educational tools for logic and reasoning.
+#[allow(dead_code)]
 impl SymbolicReasoningEngine {
     /// Creates a new instance of the symbolic reasoning engine, initializing an empty knowledge base,
     /// an empty set of rules, and no variable bindings.
@@ -252,8 +255,15 @@ impl SymbolicReasoningEngine {
             name: name.to_string(),
             symbol_type: symbol_type.to_string(),
         };
+        if self.find_symbol(name) {
+            panic!("Symbol already defined");
+        }
         self.symbols.insert(name.to_string(), symbol.clone());
         symbol
+    }
+
+    fn find_symbol(&mut self, name: &str) -> bool {
+        self.symbols.contains_key(name)
     }
 
     /// Asserts or updates a variable with a specified value in the engine's context.
@@ -330,7 +340,7 @@ impl SymbolicReasoningEngine {
     ///
     /// # Returns
     /// The determined `FactValue` for the variable.
-    fn determine_variable_value(&self, var_name: &str) -> Option<&FactValue> {
+    pub fn determine_variable_value(&self, var_name: &str) -> Option<&FactValue> {
         // Placeholder implementation
         // The actual implementation would depend on how variable values are provided or determined
         self.variable_bindings.get(var_name)
@@ -534,7 +544,13 @@ impl SymbolicReasoningEngine {
 
             for rule in self.rules.clone() {
                 let new_fact = self.apply_rule_conclusion(&rule.conclusion);
-                conclusions_to_add.push(new_fact);
+                match self.match_rule(&rule.premise) {
+                    Some(bindings) => {
+                        self.variable_bindings.extend(bindings);
+                        conclusions_to_add.push(new_fact);
+                    },
+                    _ => {}
+                };
             }
 
             for new_fact in conclusions_to_add {
@@ -841,54 +857,6 @@ impl SymbolicReasoningEngine {
             },
         }
     }
-
-    /// Applies the conclusion of a rule to potentially generate and assert a new fact into the knowledge base.
-    ///
-    /// This method is invoked as part of the rule evaluation process, specifically after a rule's premise has been
-    /// determined to be true. It takes the conclusion of the rule, typically represented as a `Fact`, and processes
-    /// it to determine if a new fact should be asserted into the knowledge base. The processing involves checking
-    /// if the conclusion represents a new piece of information not already present in the knowledge base. If it is
-    /// new, the method asserts the conclusion as a fact, thereby expanding the engine's current understanding or
-    /// state of knowledge.
-    ///
-    /// The ability to apply rule conclusions dynamically is crucial for the engine's reasoning capabilities, enabling
-    /// it to update its knowledge base based on the logical evaluation of conditions defined within its set of rules.
-    /// This method ensures that the engine can evolve and adapt its knowledge base in response to new information or
-    /// changing conditions.
-    ///
-    /// # Arguments
-    /// * `conclusion` - A reference to a `Fact` that represents the conclusion to be potentially asserted if the
-    ///   corresponding rule's premise is satisfied.
-    ///
-    /// # Returns
-    /// * `Option<Fact>` - Returns the newly asserted `Fact` if the conclusion represents new information and was
-    ///   successfully added to the knowledge base. Returns `None` if the conclusion does not represent new information,
-    ///   indicating that the knowledge base remains unchanged by this rule application.
-    ///
-    /// # Examples
-    /// ```
-    /// // Assuming an instance `engine` of `SymbolicReasoningEngine`
-    /// // and a rule conclusion that "if temperature > 30, then status = 'Hot'"
-    /// //let conclusion = Fact::new(status_symbol, FactValue::Text(String::from("Hot")));
-    ///
-    /// // Apply the rule conclusion to potentially assert a new fact
-    /// //if let Some(new_fact) = engine.apply_rule(&conclusion) {
-    ///     // The conclusion represents new information and has been asserted as a fact
-    /// //} else {
-    ///     // The conclusion does not represent new information; the knowledge base is unchanged
-    /// //}
-    /// ```
-    ///
-    /// The `apply_rule` method plays a vital role in the forward chaining process, directly influencing the engine's
-    /// ability to derive and accumulate knowledge through the application of logical rules.
-    fn apply_rule(&mut self, conclusion: &Fact) -> Option<Fact> {
-        let new_fact = Fact { symbol: conclusion.symbol.clone(), value: conclusion.value.clone() };
-        if !self.facts.contains(&new_fact) {
-            self.facts.push(new_fact.clone());
-            return Some(new_fact);
-        }
-        None
-    }
 }
 
 #[cfg(test)]
@@ -1076,5 +1044,20 @@ mod tests {
         assert!(engine.facts.iter().any(|fact|
             fact.symbol == activity_symbol && fact.value == FactValue::Text("GoodForOutdoor".to_string())
         ), "The engine did not infer that it's a good day for outdoor activities based on the weather conditions and temperature.");
+    }
+
+    #[test]
+    #[should_panic(expected = "Symbol already defined")]
+    fn test_adding_duplicate_symbol_panics() {
+        let mut engine = SymbolicReasoningEngine::new();
+
+        // Define a symbol "temperature" of type "Integer"
+        let symbol_name = "temperature";
+        let symbol_type = "Integer";
+        engine.define_symbol(symbol_name, symbol_type);
+
+        // Attempt to define the same symbol "temperature" of type "Integer" again
+        // This should panic with the specified message "Symbol already defined"
+        engine.define_symbol(symbol_name, symbol_type);
     }
 }
