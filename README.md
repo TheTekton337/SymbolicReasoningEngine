@@ -10,7 +10,8 @@ The SymbolicReasoningEngine is a flexible and extensible framework that enables 
 
 - **Dynamic Knowledge Base**: Manage a growing knowledge base of facts that the engine uses for reasoning.
 - **Logical Rule Evaluation**: Define rules with premises and conclusions to drive the inference process.
-- **Variable Support**: Utilize variables within rules for dynamic and context-sensitive reasoning.
+- **Variable Support**: (WIP) Utilize variables within rules for dynamic and context-sensitive reasoning.
+- **Backward Chaining**: Apply backward chaining logic to search for matching goals within specified rules.
 - **Forward Chaining**: Apply forward chaining logic to automatically derive new facts from existing ones.
 - **Extensible Design**: Easily extend the engine to accommodate new types of logical operations or domain-specific optimizations.
 
@@ -24,54 +25,82 @@ cd SymbolicReasoningEngine
 cargo build
 ```
 
-## Usage Example
+## Usage Examples
 
-Here's a simple example of how to use the SymbolicReasoningEngine to define symbols, assert facts, add rules, and perform inference:
+Here's a simple example of how to use the SymbolicReasoningEngine to define symbols, assert facts, add rules, and perform inference with forward chaining:
 
 ```rust
 let mut engine = SymbolicReasoningEngine::new();
 
 // Define symbols
 let weather_symbol = engine.define_symbol("Weather", "String");
-let temp_symbol = engine.define_symbol("Temperature", "Integer");
 let activity_symbol = engine.define_symbol("Activity", "String");
 
-// Assert facts: It is not raining, and the temperature is 25 degrees
-engine.assert_fact(weather_symbol.clone(), FactValue::Text("NotRaining".to_string()));
-engine.assert_variable("CurrentTemperature".to_string(), FactValue::Integer(25));
+// Assert the fact: It is sunny
+engine.assert_fact(weather_symbol.clone(), FactValue::Text("Sunny".to_string()));
 
-// Define the rule with nested logical expressions
+// Define the rule: If it is sunny, then it's a good day for outdoor activity
 engine.define_rule(
-    LogicalOperator::And(vec![
-        LogicalOperator::Or(vec![
-            LogicalOperator::AtomicFact(Fact {
-                symbol: weather_symbol.clone(),
-                value: FactValue::Text("Sunny".to_string()),
-            }),
-            LogicalOperator::Not(Box::new(LogicalOperator::AtomicFact(Fact {
-                symbol: weather_symbol.clone(),
-                value: FactValue::Text("Raining".to_string()),
-            }))),
-        ]),
-        LogicalOperator::AtomicFact(Fact {
-            symbol: temp_symbol,
-            value: FactValue::Comparison(
-                Box::new(FactValue::Text("CurrentTemperature".to_string())),
-                Comparison::GreaterThan,
-                Box::new(FactValue::Integer(20))
-            ),
-        }),
-    ]),
+    LogicalOperator::AtomicFact(Fact {
+        symbol: weather_symbol.clone(),
+        value: FactValue::Text("Sunny".to_string()),
+    }),
     Fact {
         symbol: activity_symbol.clone(),
-        value: FactValue::Text("GoodForOutdoor".to_string()),
-    }
+        value: FactValue::Text("Outdoor".to_string()),
+    },
 );
 
 // Perform forward chaining to infer new facts based on the rules
-engine.forward_chaining_with_variables();
+engine.forward_chaining();
 
-// Check for inferred facts
+// Check if the new fact (good day for outdoor activity) is added to the knowledge base
+assert!(engine.facts.contains(&Fact {
+    symbol: activity_symbol,
+    value: FactValue::Text("Outdoor".to_string()),
+}), "The engine did not infer that it's a good day for outdoor activity when it's sunny.");
+```
+
+Here is a simple example of how to use the SymbolicReasoningEngine to define symbols, assert facts, add rules, and perform inference via backward chaining:
+
+```rust
+let mut engine = SymbolicReasoningEngine::new();
+
+// Define symbols
+let weather = engine.define_symbol("Weather", "String");
+let temperature = engine.define_symbol("Temperature", "Integer");
+
+// Assert known facts into the engine's knowledge base
+engine.assert_fact(temperature.clone(), FactValue::Integer(25));
+engine.assert_fact(weather.clone(), FactValue::Text(String::from("Sunny")));
+
+// Rule 1: If temperature > 20, then it's warm
+let warm = engine.define_symbol("warm", "Boolean");
+engine.define_rule(
+    LogicalOperator::GreaterThan(
+        Box::new(ComparableValue::Symbol(temperature.clone())),
+        Box::new(ComparableValue::Direct(FactValue::Integer(20)))
+    ),
+    // Fact::new(warm.clone(), FactValue::Boolean(true))
+    Fact::new(warm.clone(), FactValue::Text("Warm".into()))
+);
+
+// Rule 2: If it's warm and sunny, then it's a good day for a picnic
+let picnic_day = engine.define_symbol("picnic_advisable", "Boolean");
+engine.define_rule(
+    LogicalOperator::And(vec![
+        LogicalOperator::AtomicFact(Fact::new(warm.clone(), FactValue::Text("Warm".into()))),
+        LogicalOperator::AtomicFact(Fact::new(weather.clone(), FactValue::Text(String::from("Sunny"))))
+    ]),
+    Fact::new(picnic_day.clone(), FactValue::Boolean(true))
+);
+
+// Specify the goal: To determine if it's a picnic day
+let goal = Fact::new(picnic_day, FactValue::Boolean(true));
+let is_picnic_day = engine.specify_goal(&goal);
+
+// Assert that the engine successfully determines it's a beach day through backward chaining
+assert!(is_picnic_day, "The engine should successfully determine it's a picnic day through backward chaining.");
 ```
 
 ## Documentation
