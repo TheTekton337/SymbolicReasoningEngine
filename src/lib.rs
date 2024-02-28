@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
+use regex::Regex;
 
 /// Represents a symbol in the symbolic reasoning engine.
 ///
@@ -105,6 +107,19 @@ pub enum LogicalOperator {
     LessThanOrEqualTo(Box<ComparableValue>, Box<ComparableValue>),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct Variable {
+    name: String,
+    value: FactValue,
+    state: VariableState,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum VariableState {
+    Stable,
+    Unstable,
+}
+
 /// Represents a rule within the symbolic reasoning engine.
 ///
 /// A rule is a fundamental construct in the engine that defines a logical relationship between a set of conditions
@@ -179,7 +194,7 @@ pub struct SymbolicReasoningEngine {
     symbols: HashMap<String, Symbol>,
     facts: Vec<Fact>,
     rules: Vec<Rule>,
-    variable_bindings: HashMap<String, FactValue>,
+    variable_bindings: HashMap<String, Variable>,
     debug: bool,
 }
 
@@ -332,7 +347,7 @@ impl SymbolicReasoningEngine {
     ///
     /// # Usage
     /// ```
-    /// // Example usage within the symbolic reasoning engine
+    /// // Example usage within the symbolic reasoning engine:
     /// // engine.assert_variable("temperature", FactValue::Integer(25));
     /// // Now, the engine knows that "temperature" is bound to the value 25
     /// // This variable can then be used in asserting facts or within rule conditions
@@ -342,9 +357,9 @@ impl SymbolicReasoningEngine {
     /// Attempting to assert a variable that already exists in the bindings will update its value. This allows
     /// for dynamic adjustments of variable values based on new information or changing conditions within the
     /// engine's execution context.
-    fn assert_variable(&mut self, var_name: String, value: FactValue) {
+    fn assert_variable(&mut self, var: &Variable) {
         // Insert or update the variable's value in the bindings
-        self.variable_bindings.insert(var_name, value);
+        self.variable_bindings.insert(var.name.to_string(), var.clone());
         self.print_debug("Variable asserted/updated in the bindings.");
     }
 
@@ -375,8 +390,111 @@ impl SymbolicReasoningEngine {
     /// engine's understanding of the domain, reflecting changes in conditions or the discovery of new
     /// information.
     fn assert_fact(&mut self, symbol: Symbol, value: FactValue) {
-        // Proceed to add the fact to the engine's knowledge base
-        self.facts.push(Fact { symbol, value });
+        let fact = Fact { symbol: symbol.clone(), value: value.clone() };
+
+        if !self.should_resolve_immediately(&fact) {
+            self.add_fact(fact);
+            return;
+        }
+
+        match value {
+            FactValue::Text(fact_string) => {
+                // Extract variables from the fact string
+                let variables = self.extract_variables_from_fact(&fact);
+
+                // Mutable copy of the fact string to modify based on variable resolution
+                let mut resolved_fact_string = fact_string.to_owned();
+
+                // Iterate over variables to resolve them conditionally
+                for variable in variables {
+                    if self.is_variable_stable(&variable) {
+                        // Resolve the variable to its value
+                        let resolved_variable = self.resolve_variable_value(&variable, &self.variable_bindings);
+                        match resolved_variable {
+                            Some(var) => {
+                                let fact_value = var.value;
+                                match fact_value {
+                                    FactValue::Text(value) => {
+                                        // Replace the variable in the fact string with its value
+                                        resolved_fact_string = resolved_fact_string.replace(&format!("${{{}}}", fact_string), &value);
+                                    },
+                                    _ => {
+                                        continue;
+                                    }
+                                }
+                            },
+                            _ => {
+                                continue;
+                            }
+                        }
+                    }
+                    // If the variable is not stable, leave it as is for now
+                }
+
+                let interpolated_fact = Fact { symbol, value: FactValue::Text(resolved_fact_string) };
+                self.add_fact(interpolated_fact);
+            },
+            _ => {
+                self.add_fact(fact);
+            }
+        }
+    }
+
+    fn add_fact(&mut self, fact: Fact) {
+        self.facts.push(fact);
+    }
+
+    /// Check if all variables in the fact are already bound and meet criteria for immediate resolution
+    fn should_resolve_immediately(&mut self, fact: &Fact) -> bool {
+        let variables = self.extract_variables_from_fact(fact);
+
+        for var_name in variables {
+            if let Some(_) = self.variable_bindings.get(&var_name) {
+                if !self.is_variable_stable(&var_name) {
+                    return false;
+                }
+                // Additional checks for frequency of usage, strategic importance, etc., can be added here
+            } else {
+                // If any variable in the fact is unbound, defer resolution
+                return false;
+            }
+        }
+
+        // If all variables are bound and meet the criteria, resolve immediately
+        true
+    }
+
+    // Helper function to extract variables from a fact
+    fn extract_variables_from_fact(&mut self, fact: &Fact) -> Vec<String> {
+        let mut variables = HashSet::new();
+
+        match &fact.value {
+            FactValue::Text(string_to_interpolate) => {
+                let escaped_placeholder = "ESCAPED_VAR_PLACEHOLDER";
+                // Temporarily replace escaped variables with a placeholder
+                let escaped_string_to_interpolate = string_to_interpolate.replace("\\${", escaped_placeholder);
+
+                // Use a HashSet to ensure uniqueness
+                let variable_regex = Regex::new(r"\$\{(\w+)}").unwrap(); // Adjust regex according to your variable naming conventions
+
+                for cap in variable_regex.captures_iter(&escaped_string_to_interpolate) {
+                    if let Some(matched) = cap.get(1) { // Get the first capture group which is the variable name without the prefix
+                        variables.insert(matched.as_str().to_string());
+                    }
+                }
+            },
+            _ => {}
+        }
+
+        variables.into_iter().collect()
+    }
+
+    // Helper function to check if a variable is considered stable
+    fn is_variable_stable(&self, variable_name: &str) -> bool {
+        match self.variable_bindings.get(variable_name) {
+            Some(variable) => variable.state == VariableState::Stable,
+            _ => false,
+        }
     }
 
     /// A placeholder method to determine or retrieve the value of a variable.
@@ -388,10 +506,61 @@ impl SymbolicReasoningEngine {
     ///
     /// # Returns
     /// The determined `FactValue` for the variable.
-    pub fn determine_variable_value(&self, var_name: &str) -> Option<&FactValue> {
+    fn determine_variable_value(&self, var_name: &str) -> Option<&Variable> {
         // Placeholder implementation
         // The actual implementation would depend on how variable values are provided or determined
         self.variable_bindings.get(var_name)
+    }
+
+    /// Resolves variables in the given input string based on the current knowledge base.
+    ///
+    /// This method searches the input string for variables, identified by the syntax `${varName}`, and attempts to replace them
+    /// with their corresponding values from the `variable_bindings` HashMap. Only variables that are in a `Stable` state are considered
+    /// for resolution. The method handles variables of different `FactValue` types, including `Integer`, `Float`, `Boolean`, and `Text`,
+    /// converting them to their string representations for the replacement. Unstable variables or those not found in `variable_bindings`
+    /// are left unchanged in the output string when check_stable is true.
+    ///
+    /// # Arguments
+    /// * `input` - A reference to a string potentially containing variables to be resolved.
+    /// * `check_stable` - A bool that determines if unstable variables are interpolated or not.
+    ///
+    /// # Returns
+    /// * A new `String` with all stable variables replaced by their current values. If a variable is not found or is not stable,
+    ///   it remains unchanged in the returned string.
+    ///
+    /// This method is essential for dynamically incorporating variable values into facts and rules during
+    /// the symbolic reasoning process, allowing for flexible and context-aware evaluations.
+    fn resolve_variables_in_context(&self, input: &str, check_stable: bool) -> String {
+        let mut resolved_string = input.to_owned();
+
+        let escaped_placeholder = "ESCAPED_VAR_PLACEHOLDER";
+        // Temporarily replace escaped variables with a placeholder
+        let escaped_temp = input.replace("\\${", escaped_placeholder);
+
+        // Example: Assuming variables are denoted by ${varName}
+        let variable_pattern = Regex::new(r"\$\{(\w+)}").unwrap();
+
+        for cap in variable_pattern.captures_iter(&escaped_temp) {
+            let var_name = &cap[1]; // Extract the variable name
+            if let Some(variable) = self.variable_bindings.get(var_name) {
+                // When check_stable is true, check if the variable is stable before attempting to replace it
+                if !check_stable || variable.state == VariableState::Stable {
+                    let replacement = match &variable.value {
+                        FactValue::Integer(val) => val.to_string(),
+                        FactValue::Float(val) => val.to_string(),
+                        FactValue::Boolean(val) => val.to_string(),
+                        FactValue::Text(val) => val.clone(),
+                    };
+                    // Replace the variable in the string with its value
+                    resolved_string = resolved_string.replace(&format!("${{{}}}", var_name), &replacement);
+                }
+            }
+        }
+
+        // Restore escaped variables from the placeholder
+        resolved_string = resolved_string.replace(escaped_placeholder, "${");
+
+        resolved_string
     }
 
     /// Defines and adds a new rule to the engine's set of logical rules.
@@ -467,12 +636,16 @@ impl SymbolicReasoningEngine {
     /// # Returns
     /// * An `Option<f64>` representing the numerical value of the fact for comparison purposes.
     ///   Returns `None` if the fact is not found or if its value cannot be represented as a number.
-    fn get_fact_value(&self, fact: &Fact) -> Option<f64> {
+    fn get_comparable_fact_value(&self, fact: &Fact) -> Option<f64> {
         self.facts.iter().find_map(|known_fact| {
             if known_fact.symbol == fact.symbol {
-                match known_fact.value {
+                match known_fact.value.clone() {
                     FactValue::Integer(value) => Some(value as f64),
                     FactValue::Float(value) => Some(value),
+                    FactValue::Text(value) => {
+                        let interpolated_string = self.resolve_variables_in_context(&value, true);
+                        Some(f64::from_str(&interpolated_string).unwrap_or(0f64))
+                    },
                     // Handle other FactValue variants that can be represented as a number or return None
                     _ => None,
                 }
@@ -546,10 +719,22 @@ impl SymbolicReasoningEngine {
                 res
             },
             LogicalOperator::AtomicFact(fact) => {
-                // Directly evaluate the fact against the known facts
-                let res = self.facts.contains(fact);
-                self.print_debug(&format!("Fact evaluation: {:?}, result: {}", fact, res));
-                res
+                match fact.value.clone() {
+                    FactValue::Text(fact_value) => {
+                        let interpolated_value = self.resolve_variables_in_context(&fact_value, true);
+                        let interpolated_fact_value = FactValue::Text(interpolated_value);
+                        let interpolated_fact = Fact { symbol: fact.symbol.clone(), value: interpolated_fact_value };
+                        // Directly evaluate the fact against the known facts
+                        let res = self.facts.contains(&interpolated_fact);
+                        self.print_debug(&format!("Fact evaluation: {:?}, result: {}", interpolated_fact, res));
+                        res
+                    },
+                    _ => {
+                        let res = self.facts.contains(&fact);
+                        self.print_debug(&format!("Fact evaluation: {:?}, result: {}", fact, res));
+                        res
+                    }
+                }
             },
             LogicalOperator::GreaterThan(left, right) => {
                 if self.compare_values(left, right, |a, b| a > b) {
@@ -744,7 +929,7 @@ impl SymbolicReasoningEngine {
     ///
     /// The `match_rule` method enables the engine to dynamically assess rule premises against the evolving knowledge base,
     /// supporting conditional logic and variable-based reasoning within the rule evaluation framework.
-    fn match_rule(&self, premise: &LogicalOperator) -> Option<HashMap<String, FactValue>> {
+    fn match_rule(&self, premise: &LogicalOperator) -> Option<HashMap<String, Variable>> {
         self.evaluate_logical_expression(premise, &self.variable_bindings, false, &mut None)
     }
 
@@ -792,7 +977,7 @@ impl SymbolicReasoningEngine {
     ///
     /// The `evaluate_logical_expression` method enables nuanced and conditional logic to be applied within the engine,
     /// supporting the evaluation of rules and conditions that reflect the complex dynamics of the domain being modeled.
-    fn evaluate_logical_expression(&self, expression: &LogicalOperator, existing_bindings: &HashMap<String, FactValue>, use_backward_chaining: bool, visited: &mut Option<&mut Vec<Fact>>) -> Option<HashMap<String, FactValue>> {
+    fn evaluate_logical_expression(&self, expression: &LogicalOperator, existing_bindings: &HashMap<String, Variable>, use_backward_chaining: bool, visited: &mut Option<&mut Vec<Fact>>) -> Option<HashMap<String, Variable>> {
         match expression {
             LogicalOperator::And(expressions) => {
                 let mut combined_bindings = existing_bindings.clone();
@@ -812,27 +997,35 @@ impl SymbolicReasoningEngine {
                 Some(_) => None, // NOT expression is false if inner is true
             },
             LogicalOperator::AtomicFact(fact) => {
-                if use_backward_chaining {
-                    for known_fact in &self.facts {
-                        if self.match_fact(fact, known_fact) {
-                            return Some(existing_bindings.clone());
-                        }
-                    }
-                    match visited {
-                        Some(visited_facts) => {
-                            if self.search_for_rules(fact, visited_facts) {
-                                return Some(existing_bindings.clone());
+                match &fact.value {
+                    FactValue::Text(fact_value) => {
+                        let interpolated_fact_value = self.resolve_variables_in_context(&fact_value, false);
+                        let interpolated_fact = Fact { symbol: fact.symbol.clone(), value: FactValue::Text(interpolated_fact_value) };
+                        if use_backward_chaining {
+                            for known_fact in &self.facts {
+                                if self.match_fact(&interpolated_fact, known_fact) {
+                                    return Some(existing_bindings.clone());
+                                }
                             }
-                        },
-                        _ => panic!("Backward chaining calls to evaluate_logical_expression must provide visited rules")
-                    }
-                } else {
-                    for known_fact in &self.facts {
-                        if self.match_fact(fact, known_fact) {
-                            return Some(existing_bindings.clone());
+                            match visited {
+                                Some(visited_facts) => {
+                                    if self.search_for_rules(&interpolated_fact, visited_facts) {
+                                        return Some(existing_bindings.clone());
+                                    }
+                                },
+                                _ => panic!("Backward chaining calls to evaluate_logical_expression must provide visited rules")
+                            }
+                        } else {
+                            for known_fact in &self.facts {
+                                if self.match_fact(&interpolated_fact, known_fact) {
+                                    return Some(existing_bindings.clone());
+                                }
+                            }
                         }
-                    }
+                    },
+                    _ => {}
                 }
+
                 None // Fact does not match any known facts
             },
             LogicalOperator::GreaterThan(left, right) => {
@@ -935,22 +1128,23 @@ impl SymbolicReasoningEngine {
             ComparableValue::Direct(fact_value) => match fact_value {
                 FactValue::Integer(val) => *val as f64,
                 FactValue::Float(val) => *val,
+                FactValue::Text(val) => f64::from_str(&self.resolve_variables_in_context(&val, true)).unwrap_or(0f64),
                 _ => panic!("Unsupported FactValue type from ComparableValue::Direct for conversion to f64"),
             },
             ComparableValue::Symbol(symbol) => {
-                let fact = self.get_fact_from_symbol(symbol.clone())
-                    .expect("Symbol not found in knowledge base");
-                let fact_value = self.get_fact_value(fact);
+                let fact = self.get_fact_from_symbol(symbol.clone()).expect("Symbol not found in knowledge base");
+
+                let fact_value = self.get_comparable_fact_value(fact);
                 match fact_value {
                     Some(val) => val,
-                    _ => panic!("Unsupported FactValue type from ComparableValue::Symbol for conversion to f64"),
+                    _ => panic!("Unsupported FactValue type from ComparableValue::SymbolName for conversion to f64"),
                 }
             },
             ComparableValue::SymbolName(symbol_name) => {
                 let symbol = self.symbols.get(symbol_name).expect("Symbol not found in knowledge base");
                 let fact = self.get_fact_from_symbol(symbol.clone())
                     .expect("Symbol not found in knowledge base");
-                let fact_value = self.get_fact_value(fact);
+                let fact_value = self.get_comparable_fact_value(fact);
                 match fact_value {
                     Some(val) => val,
                     _ => panic!("Unsupported FactValue type from ComparableValue::SymbolName for conversion to f64"),
@@ -994,8 +1188,7 @@ impl SymbolicReasoningEngine {
     ///
     /// The `resolve_variable_value` method plays a key role in enabling flexible and dynamic rule evaluation, supporting
     /// the engine's ability to adapt its reasoning based on variable data.
-    /// TODO: Add support for variable resolution within facts themselves.
-    fn resolve_variable_value(&self, var_name: &str, bindings: &HashMap<String, FactValue>) -> Option<FactValue> {
+    fn resolve_variable_value(&self, var_name: &str, bindings: &HashMap<String, Variable>) -> Option<Variable> {
         bindings.get(var_name).cloned()
     }
 
@@ -1047,7 +1240,7 @@ impl SymbolicReasoningEngine {
     /// Attempts to satisfy a specified goal by recursively searching for and applying rules.
     ///
     /// This method forms the core of the backward chaining logic, searching for rules that have conclusions
-    /// matching the goal. For each found rule, it then attempts to satisfy all of the rule's premises through
+    /// matching the goal. For each found rule, it then attempts to satisfy the rule's premises through
     /// further backward chaining. Cycle detection is performed to prevent infinite recursion.
     ///
     /// # Arguments
@@ -1192,41 +1385,49 @@ mod tests {
         }), "The engine did not infer that it's a good day for outdoor activity when it's sunny.");
     }
 
-    // TODO: Refactor variable handling.
-    // #[test]
-    // fn apply_rule_with_variables() {
-    //     let mut engine = SymbolicReasoningEngine::new();
-    //
-    //     // Define symbols
-    //     let location_symbol = engine.define_symbol("Location", "String");
-    //     let temp_symbol = engine.define_symbol("Temperature", "Integer");
-    //     let condition_symbol = engine.define_symbol("Condition", "String");
-    //
-    //     // Assert the fact: Location 'Desert' has a temperature of 30 degrees
-    //     engine.assert_fact(location_symbol.clone(), FactValue::Text("Desert".to_string()));
-    //     engine.assert_fact(temp_symbol.clone(), FactValue::Integer(30));
-    //
-    //     // Define the rule: If a location's temperature is above 25, it's considered hot
-    //     engine.define_rule(
-    //         LogicalOperator::GreaterThan(
-    //             Box::new(ComparableValue::Symbol(temp_symbol.clone())),
-    //             Box::new(ComparableValue::Direct(FactValue::Integer(20)))
-    //         ),
-    //         Fact {
-    //             symbol: condition_symbol.clone(),
-    //             value: FactValue::Text("Hot".to_string()),
-    //         }
-    //     );
-    //
-    //     // Simulate matching a variable within the rule's premise to the known facts
-    //     // and applying the conclusion based on this match
-    //     engine.forward_chaining_with_variables();
-    //
-    //     // Check if the new fact (the location is hot) is added to the knowledge base
-    //     assert!(engine.facts.iter().any(|fact|
-    //         fact.symbol == condition_symbol && fact.value == FactValue::Text("Hot".to_string())
-    //     ), "The engine did not correctly apply the rule with variables to infer the location is hot.");
-    // }
+    #[test]
+    fn apply_rule_with_variables() {
+        let mut engine = SymbolicReasoningEngine::new();
+        engine.enable_debug();
+
+        // Define symbols
+        let location_symbol = engine.define_symbol("Location", "String");
+        let temp_symbol = engine.define_symbol("Temperature", "Integer");
+        let condition_symbol = engine.define_symbol("Condition", "String");
+
+        // Assert the variable temp = 30
+        let temp_variable = Variable { name: "temp".to_string(), value: FactValue::Integer(30), state: VariableState::Stable };
+        engine.assert_variable(&temp_variable);
+
+        // Assert the fact: Location 'Desert' has a temperature of ${temp} degrees
+        engine.assert_fact(location_symbol.clone(), FactValue::Text("Desert".to_string()));
+        engine.assert_fact(temp_symbol.clone(), FactValue::Text("${temp}".to_string()));
+
+        // Define the rule: If a location's temperature is above 25, it's considered hot
+        engine.define_rule(
+            LogicalOperator::GreaterThan(
+                Box::new(ComparableValue::Direct(FactValue::Text("${temp}".to_string()))),
+                Box::new(ComparableValue::Direct(FactValue::Integer(20)))
+            ),
+            Fact {
+                symbol: condition_symbol.clone(),
+                value: FactValue::Text("Hot".to_string()),
+            }
+        );
+
+        // Simulate matching a variable within the rule's premise to the known facts
+        // and applying the conclusion based on this match
+        engine.forward_chaining_with_variables();
+
+        println!("Defined symbols: {:?}", engine.symbols);
+        println!("Asserted facts: {:?}", engine.facts);
+        println!("Asserted variables: {:?}", engine.variable_bindings);
+
+        // Check if the new fact (the location is hot) is added to the knowledge base
+        assert!(engine.facts.iter().any(|fact|
+            fact.symbol == condition_symbol && fact.value == FactValue::Text("Hot".to_string())
+        ), "The engine did not correctly apply the rule with variables to infer the location is hot.");
+    }
 
     #[test]
     fn no_new_facts_generated() {
@@ -1264,7 +1465,6 @@ mod tests {
     #[test]
     fn handle_nested_logical_expressions() {
         let mut engine = SymbolicReasoningEngine::new();
-        engine.enable_debug();
 
         // Define symbols
         let weather_symbol = engine.define_symbol("Weather", "String");
@@ -1301,10 +1501,6 @@ mod tests {
 
         // Perform forward chaining to infer new facts based on the rules
         engine.forward_chaining_with_variables();
-
-        // println!("Defined symbols: {:?}", engine.symbols);
-        // println!("Asserted facts: {:?}", engine.facts);
-        // println!("Asserted variables: {:?}", engine.variable_bindings);
 
         // Check if the new fact (good day for outdoor activities) is added to the knowledge base
         assert!(engine.facts.iter().any(|fact|
@@ -1430,35 +1626,6 @@ mod tests {
         let result = engine.specify_goal(&goal);
 
         assert_eq!(result, false, "The engine should detect the cycle and not satisfy the goal.");
-    }
-
-    #[test]
-    #[should_panic(expected = "Unsupported FactValue type from ComparableValue::Direct for conversion to f64")]
-    fn test_direct_fact_value_panic() {
-        let mut engine = SymbolicReasoningEngine::new();
-
-        // Define symbols
-        let a_symbol = engine.define_symbol("A", "Integer");
-        let b_symbol = engine.define_symbol("B", "String");
-
-        // Assert the fact: A = 0
-        engine.assert_fact(a_symbol.clone(), FactValue::Integer(0));
-
-        // Define the [invalid] rule: If Integer is greater than Text
-        engine.define_rule(
-            LogicalOperator::GreaterThan(
-                Box::new(ComparableValue::Symbol(a_symbol.clone())),
-                Box::new(ComparableValue::Direct(FactValue::Text("Invalid".to_string())))
-            ),
-            Fact {
-                symbol: b_symbol.clone(),
-                value: FactValue::Text("C".to_string()),
-            },
-        );
-
-        // Perform forward chaining to infer new facts based on the rules.
-        // This should invoke a panic based on our invalid rules.
-        engine.forward_chaining();
     }
 
     #[test]
