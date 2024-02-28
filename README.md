@@ -10,7 +10,7 @@ The SymbolicReasoningEngine is a flexible and extensible framework that enables 
 
 - **Dynamic Knowledge Base**: Manage a growing knowledge base of facts that the engine uses for reasoning.
 - **Logical Rule Evaluation**: Define rules with premises and conclusions to drive the inference process.
-- **Variable Support**: (WIP) Utilize variables within rules for dynamic and context-sensitive reasoning.
+- **Variable Support**: Utilize variables within rules for dynamic and context-sensitive reasoning.
 - **Backward Chaining**: Apply backward chaining logic to search for matching goals within specified rules.
 - **Forward Chaining**: Apply forward chaining logic to automatically derive new facts from existing ones.
 - **Extensible Design**: Easily extend the engine to accommodate new types of logical operations or domain-specific optimizations.
@@ -27,7 +27,7 @@ cargo build
 
 ## Usage Examples
 
-Here's a simple example of how to use the SymbolicReasoningEngine to define symbols, assert facts, add rules, and perform inference with forward chaining:
+Here's a simple example of how to use the SymbolicReasoningEngine to define symbols, assert variables and facts, add rules, and perform inference with forward chaining:
 
 ```rust
 let mut engine = SymbolicReasoningEngine::new();
@@ -36,15 +36,26 @@ let mut engine = SymbolicReasoningEngine::new();
 let weather_symbol = engine.define_symbol("Weather", "String");
 let activity_symbol = engine.define_symbol("Activity", "String");
 
+// Assert the variable temp = 30
+let temp_variable = Variable { name: "temp".to_string(), value: FactValue::Integer(30), state: VariableState::Stable };
+engine.assert_variable(&temp_variable);
+
 // Assert the fact: It is sunny
 engine.assert_fact(weather_symbol.clone(), FactValue::Text("Sunny".to_string()));
+engine.assert_fact(temp_symbol.clone(), FactValue::Text("${temp}".to_string()));
 
 // Define the rule: If it is sunny, then it's a good day for outdoor activity
 engine.define_rule(
-    LogicalOperator::AtomicFact(Fact {
-        symbol: weather_symbol.clone(),
-        value: FactValue::Text("Sunny".to_string()),
-    }),
+    LogicalOperator::And(vec![
+        LogicalOperator::AtomicFact(Fact {
+            symbol: weather_symbol.clone(),
+            value: FactValue::Text("Sunny".to_string()),
+        }),
+        LogicalOperator::GreaterThan(
+            Box::new(ComparableValue::Direct(FactValue::Text("${temp}".to_string()))),
+            Box::new(ComparableValue::Direct(FactValue::Integer(20)))
+        )
+    ]),
     Fact {
         symbol: activity_symbol.clone(),
         value: FactValue::Text("Outdoor".to_string()),
